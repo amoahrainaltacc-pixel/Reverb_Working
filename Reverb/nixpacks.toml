@@ -1,11 +1,2 @@
 [phases.setup]
 nixPkgs = ["python313", "ffmpeg", "libopus", "libsodium", "deno"]
-
-[phases.install]
-cmds = [
-  "python3 -m pip install --upgrade pip",
-  "python3 -m pip install -r Reverb/requirements.txt"
-]
-
-[start]
-cmd = "cd Reverb && python3 main.py"
