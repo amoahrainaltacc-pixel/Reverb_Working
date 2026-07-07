@@ -78,6 +78,8 @@ class YTDLSource(discord.PCMVolumeTransformer):
         ydl_opts["noplaylist"]   = True
         ydl_opts["extract_flat"] = False
 
+        log.info("Downloading audio for: %s", url)
+
         def _download() -> tuple[dict, str]:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -90,6 +92,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
                 return info, fpath
 
         data, filepath = await loop.run_in_executor(None, _download)
+        log.info("Download complete — file: %s  exists: %s", filepath, os.path.exists(filepath))
 
         ffmpeg_opts = copy.deepcopy(config.FFMPEG_OPTIONS)
         # Playing a local file — no reconnect flags needed, strip them to
@@ -233,7 +236,14 @@ class GuildPlayer:
     async def _player_loop(self) -> None:
         await self.bot.wait_until_ready()
         self._play_next_event.clear()
+        log.info("Player loop started for guild: %s", self.guild.name)
 
+        try:
+          await self._player_loop_inner()
+        except Exception:
+            log.exception("Unhandled exception in player loop for guild %s", self.guild.name)
+
+    async def _player_loop_inner(self) -> None:
         while True:
             self._play_next_event.clear()
 
