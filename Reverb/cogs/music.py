@@ -74,9 +74,18 @@ class Music(commands.Cog, name="Music"):
         if vc and vc.channel != ctx.author.voice.channel:
             await ctx.send(embed=embeds.error("I'm already playing in a different voice channel."))
             return None
-        if not vc:
+        if not vc or not vc.is_connected():
             try:
-                vc = await ctx.author.voice.channel.connect()
+                vc = await ctx.author.voice.channel.connect(
+                    reconnect=True,
+                    self_deaf=True,   # bot deafens itself – saves bandwidth, stops join/leave loop
+                )
+            except discord.ClientException:
+                # Already connected — grab the existing client
+                vc = ctx.guild.voice_client  # type: ignore
+                if not vc:
+                    await ctx.send(embed=embeds.error("Could not connect to your voice channel."))
+                    return None
             except Exception as exc:
                 log.error("VC connect error: %s", exc)
                 await ctx.send(embed=embeds.error("Could not connect to your voice channel."))
@@ -551,11 +560,27 @@ class Music(commands.Cog, name="Music"):
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
-        vc = member.guild.voice_client
+        guild = member.guild
+        vc = guild.voice_client
+
+        # ── Bot was disconnected by Discord (kicked, server restart, etc.) ──
+        if member == self.bot.user:
+            if before.channel and not after.channel:
+                # Bot left a voice channel — clean up so the player doesn't
+                # try to send audio to a dead connection (which causes
+                # discord.py to reconnect, creating the join/leave loop).
+                # Use manager.remove() as the single authoritative teardown
+                # (it calls player.stop() internally).
+                self.manager.remove(guild)
+                await self._reset_status()
+                log.info("Bot was disconnected from VC in %s — player cleaned up.", guild.name)
+            return
+
+        # ── A human left the bot's current channel ──────────────────────────
         if not vc or not before.channel or before.channel != vc.channel:
             return
         remaining = [m for m in vc.channel.members if not m.bot]
         if not remaining:
-            player = self.manager.get_existing(member.guild)
+            player = self.manager.get_existing(guild)
             if player:
                 player.schedule_auto_disconnect()

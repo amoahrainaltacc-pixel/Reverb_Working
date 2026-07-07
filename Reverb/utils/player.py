@@ -225,9 +225,21 @@ class GuildPlayer:
             self.current = source
             vc = self.guild.voice_client
             if not vc or not vc.is_connected():
+                log.warning("Voice client gone before playback in %s — stopping player.", self.guild.name)
+                self.current = None
+                self.current_meta = None
+                # Explicit teardown so stale player isn't left in the manager
+                # if the voice-state event was missed or delayed.
+                self._manager._players.pop(self.guild.id, None)
+                await self._reset_presence()
                 return
 
-            vc.play(source, after=self._after_play)
+            try:
+                vc.play(source, after=self._after_play)
+            except discord.ClientException as exc:
+                log.error("vc.play() failed (%s) — skipping track.", exc)
+                self._play_next_event.set()
+                continue
 
             # Record to recently played & increment counter
             data_store.add_recently_played(self.guild.id, track)

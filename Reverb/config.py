@@ -37,9 +37,9 @@ SUPPORT_SERVER:        str = os.getenv("SUPPORT_SERVER", "https://discord.gg/rev
 
 # ── yt-dlp ─────────────────────────────────────────────────────────────────
 YTDL_FORMAT_OPTIONS: dict = {
-    # Prefer webm/opus (YouTube's native format — no server-side re-encode,
-    # highest available quality). Fall back to any best audio.
-    "format": "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best",
+    # Prefer opus/m4a (lighter, more reliable on hosted environments like
+    # Replit). webm can have slow first-byte times on certain CDN edges.
+    "format": "bestaudio[ext=webm][acodec=opus]/bestaudio[ext=m4a]/bestaudio/best",
     "outtmpl": "%(extractor)s-%(id)s-%(title)s.%(ext)s",
     "restrictfilenames": True,
     "noplaylist": False,
@@ -52,15 +52,27 @@ YTDL_FORMAT_OPTIONS: dict = {
     "source_address": "0.0.0.0",
     "extract_flat": "in_playlist",
     "socket_timeout": 30,
+    # Use PO token workaround for bot-detected environments
+    "extractor_args": {"youtube": {"player_client": ["web"]}},
 }
 
 # ── FFmpeg ──────────────────────────────────────────────────────────────────
 # IMPORTANT: Do NOT add -filter:a volume=X here.
 # Volume is handled by discord.py's PCMVolumeTransformer (pure Python on raw
 # PCM), which avoids a decode→filter→re-encode round-trip that degrades quality.
+#
+# -timeout: abort if no data arrives in 15s (prevents silent hangs on Replit)
+# -reconnect_*: recover mid-stream if YouTube CDN rotates the URL
+# -analyzeduration / -probesize: reduce stream-open latency while staying
+#   well above safe demux thresholds (32k probesize, 2s analyzeduration)
 FFMPEG_OPTIONS: dict = {
     "before_options": (
-        "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+        "-reconnect 1 "
+        "-reconnect_streamed 1 "
+        "-reconnect_delay_max 5 "
+        "-timeout 15000000 "
+        "-analyzeduration 2000000 "
+        "-probesize 32768 "
     ),
     "options": "-vn",   # strip video only; no audio filters
 }
