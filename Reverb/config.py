@@ -39,7 +39,7 @@ SUPPORT_SERVER:        str = os.getenv("SUPPORT_SERVER", "https://discord.gg/rev
 YTDL_FORMAT_OPTIONS: dict = {
     # Prefer opus/m4a (lighter, more reliable on hosted environments like
     # Replit). webm can have slow first-byte times on certain CDN edges.
-    "format": "bestaudio[ext=webm][acodec=opus]/bestaudio[ext=m4a]/bestaudio/best",
+    "format": "bestaudio/best",
     "outtmpl": "%(extractor)s-%(id)s-%(title)s.%(ext)s",
     "restrictfilenames": True,
     "noplaylist": False,

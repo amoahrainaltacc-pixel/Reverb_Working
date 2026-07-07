@@ -2,7 +2,7 @@
 # Install with: pip install -r requirements.txt
 
 # ── Discord ────────────────────────────────────────────────────────────────
-discord.py[voice]==2.3.2
+discord.py[voice]==2.7.1
 
 # ── Audio extraction ───────────────────────────────────────────────────────
 yt-dlp>=2024.1.1
