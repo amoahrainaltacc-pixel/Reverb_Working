@@ -7,7 +7,6 @@ import asyncio
 import copy
 import logging
 import random
-import shlex
 import time
 from typing import Optional
 
@@ -26,19 +25,38 @@ log = logging.getLogger("reverb.player")
 
 class YTDLSource(discord.PCMVolumeTransformer):
 
-    def __init__(self, source: discord.FFmpegPCMAudio, *, data: dict, volume: float = 0.5):
+    def __init__(
+        self,
+        source: discord.FFmpegPCMAudio,
+        *,
+        data: dict,
+        volume: float = 0.5,
+        filepath: Optional[str] = None,
+    ):
         super().__init__(source, volume=volume)
-        self.data      = data
-        self.title:    str           = data.get("title", "Unknown")
-        self.url:      str           = data.get("webpage_url", data.get("url", ""))
-        self.thumbnail: Optional[str]= data.get("thumbnail")
-        self.duration: float         = float(data.get("duration") or 0)
-        self.uploader: str           = data.get("uploader") or data.get("channel", "Unknown")
-        self.start_time: float       = time.time()
+        self.data       = data
+        self.title:     str            = data.get("title", "Unknown")
+        self.url:       str            = data.get("webpage_url", data.get("url", ""))
+        self.thumbnail: Optional[str]  = data.get("thumbnail")
+        self.duration:  float          = float(data.get("duration") or 0)
+        self.uploader:  str            = data.get("uploader") or data.get("channel", "Unknown")
+        self.start_time: float         = time.time()
+        self._filepath: Optional[str]  = filepath  # deleted in cleanup()
 
     @property
     def position(self) -> float:
         return time.time() - self.start_time
+
+    def cleanup(self) -> None:
+        """Called automatically by discord.py after playback ends or is stopped."""
+        super().cleanup()
+        if self._filepath:
+            try:
+                os.unlink(self._filepath)
+                log.debug("Deleted audio cache file: %s", self._filepath)
+            except OSError:
+                pass
+            self._filepath = None
 
     @classmethod
     async def from_url(
@@ -47,64 +65,49 @@ class YTDLSource(discord.PCMVolumeTransformer):
         *,
         loop: asyncio.AbstractEventLoop,
         volume: float = 0.5,
-        stream: bool = True,
     ) -> "YTDLSource":
+        """Download the audio to a local temp file then create a playback source.
+
+        Downloading avoids all CDN streaming issues (403s, reconnect failures,
+        format restrictions from client fingerprinting).  The file is deleted
+        automatically when discord.py calls cleanup() after the track ends.
+        """
+        os.makedirs(config.AUDIO_DOWNLOAD_DIR, exist_ok=True)
+
         ydl_opts = copy.deepcopy(config.YTDL_FORMAT_OPTIONS)
-        ydl_opts["noplaylist"]    = True
-        ydl_opts["extract_flat"]  = False
+        ydl_opts["noplaylist"]   = True
+        ydl_opts["extract_flat"] = False
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            data = await loop.run_in_executor(
-                None, lambda: ydl.extract_info(url, download=not stream)
-            )
-
-        if "entries" in data:
-            data = data["entries"][0]
-
-        if stream:
-            # Track the exact format object we're using so we can pick up
-            # its headers later (format-level headers take priority over the
-            # top-level info dict when formats differ in CDN requirements).
-            chosen_fmt: dict = data
-            if data.get("url"):
-                stream_url = data["url"]
-            else:
-                chosen_fmt = next(
-                    (f for f in data.get("requested_formats", []) if f.get("url")),
-                    data,
-                )
-                stream_url = chosen_fmt.get("url") or data.get("webpage_url", "")
-        else:
-            chosen_fmt = data
+        def _download() -> tuple[dict, str]:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                stream_url = ydl.prepare_filename(data)
+                info = ydl.extract_info(url, download=True)
+                if "entries" in info:
+                    info = info["entries"][0]
+                # yt-dlp records the final path in requested_downloads after
+                # post-processing; fall back to prepare_filename if absent.
+                dl = (info.get("requested_downloads") or [{}])[0]
+                fpath = dl.get("filepath") or ydl.prepare_filename(info)
+                return info, fpath
+
+        data, filepath = await loop.run_in_executor(None, _download)
 
         ffmpeg_opts = copy.deepcopy(config.FFMPEG_OPTIONS)
-        ffmpeg_opts["options"] = f"-vn -filter:a volume={volume}"
+        # Playing a local file — no reconnect flags needed, strip them to
+        # avoid FFmpeg warnings on non-HTTP sources.
+        ffmpeg_opts["before_options"] = (
+            ffmpeg_opts.get("before_options", "")
+            .replace("-reconnect 1 ", "")
+            .replace("-reconnect_streamed 1 ", "")
+            .replace("-reconnect_delay_max 5 ", "")
+            .strip()
+        )
 
-        # Forward yt-dlp's required HTTP headers to FFmpeg so the CDN
-        # doesn't 403. yt-dlp stores the exact headers it used (User-Agent,
-        # etc.) in data["http_headers"]; without them FFmpeg's bare request
-        # gets rejected by YouTube's edge servers.
-        # Prefer format-level headers; fall back to top-level info dict.
-        http_headers: dict = chosen_fmt.get("http_headers") or data.get("http_headers") or {}
-        if http_headers:
-            # Sanitise each value: strip CR/LF and quote chars to prevent
-            # argument-injection into FFmpeg's option string.
-            def _safe(v: str) -> str:
-                return str(v).replace("\r", "").replace("\n", "").replace("'", "").replace('"', "")
-
-            header_str = "".join(
-                f"{k}: {_safe(v)}\r\n" for k, v in http_headers.items()
-            )
-            # shlex.quote produces a safely-quoted token that discord.py's
-            # shlex.split will parse back as a single -headers argument.
-            ffmpeg_opts["before_options"] = (
-                f"-headers {shlex.quote(header_str)} "
-                + ffmpeg_opts.get("before_options", "")
-            )
-
-        return cls(discord.FFmpegPCMAudio(stream_url, **ffmpeg_opts), data=data, volume=volume)
+        return cls(
+            discord.FFmpegPCMAudio(filepath, **ffmpeg_opts),
+            data=data,
+            volume=volume,
+            filepath=filepath,
+        )
 
     @classmethod
     async def search_entries(

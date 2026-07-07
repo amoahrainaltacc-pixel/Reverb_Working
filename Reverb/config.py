@@ -36,11 +36,17 @@ RECENTLY_PLAYED_LIMIT: int = 10
 SUPPORT_SERVER:        str = os.getenv("SUPPORT_SERVER", "https://discord.gg/reverb")
 
 # ── yt-dlp ─────────────────────────────────────────────────────────────────
+# Directory where audio is downloaded before playback.
+# Using /tmp avoids permission issues on hosted environments and keeps the
+# repl directory clean. Files are deleted automatically after each track.
+AUDIO_DOWNLOAD_DIR: str = "/tmp/reverb_audio"
+
 YTDL_FORMAT_OPTIONS: dict = {
-    # Prefer opus/m4a (lighter, more reliable on hosted environments like
-    # Replit). webm can have slow first-byte times on certain CDN edges.
+    # bestaudio: let yt-dlp pick the best single audio stream available.
+    # No extractor_args restrictions — we download to a local file so CDN
+    # 403 / streaming header issues are irrelevant.
     "format": "bestaudio/best",
-    "outtmpl": "%(extractor)s-%(id)s-%(title)s.%(ext)s",
+    "outtmpl": f"{AUDIO_DOWNLOAD_DIR}/%(id)s.%(ext)s",
     "restrictfilenames": True,
     "noplaylist": False,
     "nocheckcertificate": True,
@@ -51,11 +57,7 @@ YTDL_FORMAT_OPTIONS: dict = {
     "default_search": "ytsearch",
     "source_address": "0.0.0.0",
     "extract_flat": "in_playlist",
-    "socket_timeout": 30,
-    # Use the iOS player client — its CDN URLs are far less likely to return
-    # 403 than the web client, because YouTube doesn't apply the same
-    # bot-detection heuristics to the iOS app UA.
-    "extractor_args": {"youtube": {"player_client": ["ios"]}},
+    "socket_timeout": 60,
 }
 
 # ── FFmpeg ──────────────────────────────────────────────────────────────────
