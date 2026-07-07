@@ -26,13 +26,11 @@ _IDLE_ACTIVITY = discord.Activity(
     name=f"music | {config.PREFIX}help",
 )
 
-# Simple per-user interaction cooldown (seconds)
 BUTTON_COOLDOWN = 1.5
 _cooldowns: dict[int, float] = {}
 
 
 def _check_cooldown(user_id: int) -> float:
-    """Returns remaining cooldown seconds (0.0 if clear)."""
     now  = time.monotonic()
     last = _cooldowns.get(user_id, 0)
     rem  = BUTTON_COOLDOWN - (now - last)
@@ -44,14 +42,30 @@ def _check_cooldown(user_id: int) -> float:
 
 def _fmt_dur(seconds: float) -> str:
     if not seconds:
-        return "∞"
+        return "0:00"
     s  = int(seconds)
     m, s = divmod(s, 60)
     h, m = divmod(m, 60)
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
-# ─── Player View (8 buttons, 2 rows) ───────────────────────────────────────
+# ─── Player View ───────────────────────────────────────────────────────────
+#
+# Layout (2 rows of 5 buttons each):
+#
+#   Row 0 — primary controls
+#   ┌──────────┬───────┬───────┬────────┬──────────┐
+#   │ ⏸/▶ Play │ ⏭ Skip│ ⏹ Stop│ 🔁 Loop│ 🔀 Shuffle│
+#   └──────────┴───────┴───────┴────────┴──────────┘
+#
+#   Row 1 — secondary controls
+#   ┌───────┬───────┬─────────┬─────────┬────────┐
+#   │ 🔉 −10│ 🔊 +10│ 📋 Queue│ ❤️ Save │        │
+#   └───────┴───────┴─────────┴─────────┴────────┘
+#
+# • Play/Pause is a single toggle button (emoji + style change dynamically)
+# • Loop button turns green (SUCCESS) when enabled
+# • Favorite button saves the current track to the user's favorites
 
 class PlayerView(discord.ui.View):
     """Full interactive player — attaches to the now-playing card."""
@@ -71,73 +85,88 @@ class PlayerView(discord.ui.View):
             if not isinstance(child, discord.ui.Button):
                 continue
             cid = child.custom_id
-            if cid == "reverb:resume":
-                child.disabled = is_playing or not active
-            elif cid == "reverb:pause":
-                child.disabled = not is_playing
+
+            if cid == "reverb:playpause":
+                # Single toggle: shows ⏸ while playing, ▶️ while paused
+                if is_paused:
+                    child.emoji = "▶️"
+                    child.label = "Resume"
+                    child.style = discord.ButtonStyle.success
+                else:
+                    child.emoji = "⏸"
+                    child.label = "Pause"
+                    child.style = discord.ButtonStyle.secondary
+                child.disabled = not active
+
             elif cid == "reverb:skip":
                 child.disabled = not active
+
+            elif cid == "reverb:stop":
+                child.disabled = not active
+
+            elif cid == "reverb:loop":
+                # Light up green when loop is active
+                child.style   = discord.ButtonStyle.success if self.player.looping else discord.ButtonStyle.secondary
+
             elif cid == "reverb:shuffle":
                 child.disabled = self.player.queue_size() < 2
+
             elif cid == "reverb:voldown":
                 child.disabled = self.player.volume <= 0
+
             elif cid == "reverb:volup":
                 child.disabled = self.player.volume >= 100
 
     async def _guard(self, interaction: discord.Interaction) -> bool:
-        """
-        Three-way guard:
-          1. Cooldown
-          2. Same voice channel
-          3. DJ role (if set)
-        """
         # 1. Cooldown
         cd = _check_cooldown(interaction.user.id)
         if cd > 0:
             await interaction.response.send_message(
-                embed=embeds.warning(f"Slow down! Try again in `{cd:.1f}s`.", "Cooldown"),
+                embed=embeds.warning(f"Slow down! Try again in `{cd:.1f}s`.", "Cooldown ⏱"),
                 ephemeral=True,
             )
             return False
-
         # 2. Same voice channel
         vc        = interaction.guild.voice_client if interaction.guild else None
         member_vc = interaction.user.voice.channel if interaction.user.voice else None
         if not vc or not member_vc or vc.channel != member_vc:
             await interaction.response.send_message(
-                embed=embeds.error("You must be in the same voice channel as Reverb."),
+                embed=embeds.error("You must be in the **same voice channel** as Reverb."),
                 ephemeral=True,
             )
             return False
-
         # 3. DJ role
         if not data_store.has_dj(interaction.user):
             await interaction.response.send_message(
                 embed=embeds.error(
-                    "You need the **DJ role** or **Manage Server** permission to use music controls.",
+                    "You need the **DJ role** or **Manage Server** permission.",
                     "DJ Required",
                 ),
                 ephemeral=True,
             )
             return False
-
         return True
 
     async def _update_card(self, interaction: discord.Interaction) -> None:
-        """Refresh the now-playing embed and button states in place."""
+        """Refresh the NP embed and button states in-place."""
         try:
             self._refresh_states()
             if self.player.current_meta:
                 pos     = self.player.current.position if self.player.current else 0.0
                 vc      = self.player.guild.voice_client
                 vc_name = vc.channel.name if vc else ""
-                embed   = embeds.now_playing(
+                bot_icon = (
+                    str(interaction.client.user.display_avatar)
+                    if interaction.client.user else None
+                )
+                embed = embeds.now_playing(
                     self.player.current_meta,
                     position=pos,
                     volume=self.player.volume,
                     looping=self.player.looping,
                     queue_size=self.player.queue_size(),
                     vc_name=vc_name,
+                    bot_icon=bot_icon,
                 )
                 await interaction.message.edit(embed=embed, view=self)
             else:
@@ -145,27 +174,22 @@ class PlayerView(discord.ui.View):
         except Exception as exc:
             log.debug("Could not update player card: %s", exc)
 
-    # ── Row 0 ───────────────────────────────────────────────────────────────
-
-    @discord.ui.button(emoji="▶️", label="Resume", style=discord.ButtonStyle.success,
-                       custom_id="reverb:resume", row=0)
-    async def btn_resume(self, interaction: discord.Interaction, _: discord.ui.Button):
-        if not await self._guard(interaction):
-            return
-        ok    = self.player.resume()
-        msg   = "Resumed playback." if ok else "Nothing is paused."
-        embed = embeds.success(msg, "Resumed ▶️") if ok else embeds.warning(msg, "Warning")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        await self._update_card(interaction)
+    # ── Row 0 — primary controls ────────────────────────────────────────────
 
     @discord.ui.button(emoji="⏸", label="Pause", style=discord.ButtonStyle.secondary,
-                       custom_id="reverb:pause", row=0)
-    async def btn_pause(self, interaction: discord.Interaction, _: discord.ui.Button):
+                       custom_id="reverb:playpause", row=0)
+    async def btn_playpause(self, interaction: discord.Interaction, _: discord.ui.Button):
         if not await self._guard(interaction):
             return
-        ok    = self.player.pause()
-        msg   = "Paused playback." if ok else "Nothing is playing."
-        embed = embeds.success(msg, "Paused ⏸") if ok else embeds.warning(msg, "Warning")
+        vc = interaction.guild.voice_client
+        if vc and vc.is_playing():
+            ok    = self.player.pause()
+            embed = embeds.success("Paused playback.", "Paused ⏸") if ok else embeds.warning("Nothing is playing.")
+        elif vc and vc.is_paused():
+            ok    = self.player.resume()
+            embed = embeds.success("Resumed playback.", "Resumed ▶️") if ok else embeds.warning("Nothing is paused.")
+        else:
+            embed = embeds.warning("Nothing is currently playing.")
         await interaction.response.send_message(embed=embed, ephemeral=True)
         await self._update_card(interaction)
 
@@ -180,7 +204,7 @@ class PlayerView(discord.ui.View):
         )
         self.player.skip()
         await interaction.response.send_message(
-            embed=embeds.success(f"Skipped **{title[:200]}**.", "Skipped ⏭"),
+            embed=embeds.success(f"Skipped **{_trunc200(title)}**.", "Skipped ⏭"),
             ephemeral=True,
         )
         await self._update_card(interaction)
@@ -202,7 +226,7 @@ class PlayerView(discord.ui.View):
             if isinstance(child, discord.ui.Button):
                 child.disabled = True
         await interaction.response.edit_message(
-            embed=embeds.success("Stopped playback and cleared the queue.", "Stopped ⏹"),
+            embed=embeds.success("Stopped playback and cleared the queue. 👋", "Stopped ⏹"),
             view=self,
         )
 
@@ -212,35 +236,63 @@ class PlayerView(discord.ui.View):
         if not await self._guard(interaction):
             return
         self.player.looping = not self.player.looping
-        state = "enabled 🔁" if self.player.looping else "disabled"
-        await interaction.response.send_message(
-            embed=embeds.success(f"Loop **{state}**.", "Loop 🔁"),
-            ephemeral=True,
-        )
+        if self.player.looping:
+            embed = embeds.success("Loop **enabled** — current track will repeat.", "Loop 🔁")
+        else:
+            embed = embeds.info("Loop **disabled**.", "Loop 🔁")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         await self._update_card(interaction)
 
-    # ── Row 1 ───────────────────────────────────────────────────────────────
-
     @discord.ui.button(emoji="🔀", label="Shuffle", style=discord.ButtonStyle.secondary,
-                       custom_id="reverb:shuffle", row=1)
+                       custom_id="reverb:shuffle", row=0)
     async def btn_shuffle(self, interaction: discord.Interaction, _: discord.ui.Button):
         if not await self._guard(interaction):
             return
         n = self.player.queue_size()
         if n < 2:
             await interaction.response.send_message(
-                embed=embeds.warning("Need at least 2 queued tracks to shuffle.", "Warning"),
+                embed=embeds.warning("Need at least **2 tracks** in the queue to shuffle."),
                 ephemeral=True,
             )
             return
         self.player.shuffle()
         await interaction.response.send_message(
-            embed=embeds.success(f"Shuffled **{n}** tracks! 🔀", "Shuffled"),
+            embed=embeds.success(f"Shuffled **{n} tracks**! 🔀", "Shuffled"),
             ephemeral=True,
         )
         await self._update_card(interaction)
 
-    @discord.ui.button(emoji="📜", label="Queue", style=discord.ButtonStyle.secondary,
+    # ── Row 1 — secondary controls ──────────────────────────────────────────
+
+    @discord.ui.button(emoji="🔉", label="−10", style=discord.ButtonStyle.secondary,
+                       custom_id="reverb:voldown", row=1)
+    async def btn_voldown(self, interaction: discord.Interaction, _: discord.ui.Button):
+        if not await self._guard(interaction):
+            return
+        new_vol = max(0, self.player.volume - 10)
+        self.player.set_volume(new_vol)
+        bar = "▰" * (new_vol // 10) + "▱" * (10 - new_vol // 10)
+        await interaction.response.send_message(
+            embed=embeds.success(f"Volume: **{new_vol}%**\n`{bar}`", "Volume 🔉"),
+            ephemeral=True,
+        )
+        await self._update_card(interaction)
+
+    @discord.ui.button(emoji="🔊", label="+10", style=discord.ButtonStyle.secondary,
+                       custom_id="reverb:volup", row=1)
+    async def btn_volup(self, interaction: discord.Interaction, _: discord.ui.Button):
+        if not await self._guard(interaction):
+            return
+        new_vol = min(100, self.player.volume + 10)
+        self.player.set_volume(new_vol)
+        bar = "▰" * (new_vol // 10) + "▱" * (10 - new_vol // 10)
+        await interaction.response.send_message(
+            embed=embeds.success(f"Volume: **{new_vol}%**\n`{bar}`", "Volume 🔊"),
+            ephemeral=True,
+        )
+        await self._update_card(interaction)
+
+    @discord.ui.button(emoji="📋", label="Queue", style=discord.ButtonStyle.secondary,
                        custom_id="reverb:queue", row=1)
     async def btn_queue(self, interaction: discord.Interaction, _: discord.ui.Button):
         tracks  = self.player.queue_list
@@ -248,33 +300,38 @@ class PlayerView(discord.ui.View):
         embed   = embeds.queue_list(tracks, current=current)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @discord.ui.button(emoji="🔉", label="Vol -", style=discord.ButtonStyle.secondary,
-                       custom_id="reverb:voldown", row=1)
-    async def btn_voldown(self, interaction: discord.Interaction, _: discord.ui.Button):
-        if not await self._guard(interaction):
+    @discord.ui.button(emoji="❤️", label="Save", style=discord.ButtonStyle.secondary,
+                       custom_id="reverb:favorite", row=1)
+    async def btn_favorite(self, interaction: discord.Interaction, _: discord.ui.Button):
+        if not self.player.current_meta:
+            await interaction.response.send_message(
+                embed=embeds.warning("Nothing is playing right now."),
+                ephemeral=True,
+            )
             return
-        new_vol = max(0, self.player.volume - 10)
-        self.player.set_volume(new_vol)
-        bar = "█" * (new_vol // 10) + "░" * (10 - new_vol // 10)
-        await interaction.response.send_message(
-            embed=embeds.success(f"Volume: **{new_vol}%**\n`{bar}`", "Volume 🔉"),
-            ephemeral=True,
+        added = data_store.add_favorite(
+            interaction.user.id,
+            interaction.guild_id,
+            self.player.current_meta,
         )
-        await self._update_card(interaction)
+        if added:
+            title = self.player.current_meta.get("title", "this track")
+            await interaction.response.send_message(
+                embed=embeds.success(
+                    f"Saved **{_trunc200(title)}** to your favorites! ❤️",
+                    "Favorited",
+                ),
+                ephemeral=True,
+            )
+        else:
+            await interaction.response.send_message(
+                embed=embeds.warning("This track is already in your favorites.", "Already Saved"),
+                ephemeral=True,
+            )
 
-    @discord.ui.button(emoji="🔊", label="Vol +", style=discord.ButtonStyle.secondary,
-                       custom_id="reverb:volup", row=1)
-    async def btn_volup(self, interaction: discord.Interaction, _: discord.ui.Button):
-        if not await self._guard(interaction):
-            return
-        new_vol = min(100, self.player.volume + 10)
-        self.player.set_volume(new_vol)
-        bar = "█" * (new_vol // 10) + "░" * (10 - new_vol // 10)
-        await interaction.response.send_message(
-            embed=embeds.success(f"Volume: **{new_vol}%**\n`{bar}`", "Volume 🔊"),
-            ephemeral=True,
-        )
-        await self._update_card(interaction)
+
+def _trunc200(s: str) -> str:
+    return s[:197] + "…" if len(s) > 200 else s
 
 
 # ─── Help View (category dropdown) ─────────────────────────────────────────
@@ -295,14 +352,14 @@ class HelpSelect(discord.ui.Select):
     def __init__(self, prefix: str):
         self.prefix = prefix
         super().__init__(
-            placeholder="📂  Select a category…",
+            placeholder="📂  Choose a category…",
             min_values=1,
             max_values=1,
             options=[
                 discord.SelectOption(label="Home",     value="home",     emoji="🏠", description="Back to the main menu"),
-                discord.SelectOption(label="Music",    value="music",    emoji="🎵", description="All music commands"),
-                discord.SelectOption(label="Utility",  value="utility",  emoji="🛠", description="General utility commands"),
-                discord.SelectOption(label="Settings", value="settings", emoji="⚙️", description="Bot settings"),
+                discord.SelectOption(label="Music",    value="music",    emoji="🎵", description="Playback, queue, playlist commands"),
+                discord.SelectOption(label="Utility",  value="utility",  emoji="🛠", description="Stats, ping, info commands"),
+                discord.SelectOption(label="Settings", value="settings", emoji="⚙️", description="Prefix, DJ role, server config"),
                 discord.SelectOption(label="Admin",    value="admin",    emoji="👑", description="Admin-only commands"),
             ],
         )
@@ -338,8 +395,9 @@ class QueuePagesView(discord.ui.View):
     def _update_buttons(self):
         self.btn_prev.disabled = self.page <= 1
         self.btn_next.disabled = self.page >= self.total
+        self.btn_page.label    = f"{self.page} / {self.total}"
 
-    @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary, custom_id="q:prev")
+    @discord.ui.button(label="◀  Prev", style=discord.ButtonStyle.secondary, custom_id="q:prev")
     async def btn_prev(self, interaction: discord.Interaction, _: discord.ui.Button):
         self.page = max(1, self.page - 1)
         self._update_buttons()
@@ -348,7 +406,12 @@ class QueuePagesView(discord.ui.View):
             view=self,
         )
 
-    @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary, custom_id="q:next")
+    @discord.ui.button(label="1 / 1", style=discord.ButtonStyle.secondary,
+                       custom_id="q:page", disabled=True)
+    async def btn_page(self, interaction: discord.Interaction, _: discord.ui.Button):
+        pass  # display only
+
+    @discord.ui.button(label="Next  ▶", style=discord.ButtonStyle.secondary, custom_id="q:next")
     async def btn_next(self, interaction: discord.Interaction, _: discord.ui.Button):
         self.page = min(self.total, self.page + 1)
         self._update_buttons()
@@ -361,8 +424,6 @@ class QueuePagesView(discord.ui.View):
 # ─── Search Select View ─────────────────────────────────────────────────────
 
 class SearchView(discord.ui.View):
-    """Dropdown to select a track from search results."""
-
     def __init__(self, results: list[dict], player: "GuildPlayer", requestor: str):
         super().__init__(timeout=30)
         self.results   = results
@@ -382,12 +443,11 @@ class SearchSelect(discord.ui.Select):
         for i, t in enumerate(results[:10]):
             dur   = _fmt_dur(t.get("duration", 0))
             label = t["title"][:98]
-            desc  = f"{t.get('uploader', '')} — {dur}"[:100]
+            desc  = f"{t.get('uploader', '')} · {dur}"[:100]
             options.append(discord.SelectOption(label=label, value=str(i), description=desc, emoji="🎵"))
         super().__init__(placeholder="🎵  Choose a track to play…", options=options)
 
     async def callback(self, interaction: discord.Interaction):
-        # DJ check
         if not data_store.has_dj(interaction.user):
             await interaction.response.send_message(
                 embed=embeds.error(
@@ -405,7 +465,7 @@ class SearchSelect(discord.ui.Select):
             pos = await self.view.player.add(track)
         except OverflowError:
             await interaction.response.edit_message(
-                embed=embeds.error("The queue is full!"), view=None
+                embed=embeds.error("The queue is full! (max 100 tracks)"), view=None
             )
             return
 
@@ -413,7 +473,9 @@ class SearchSelect(discord.ui.Select):
         if vc and (vc.is_playing() or vc.is_paused()):
             embed = embeds.track_added(track, pos)
         else:
-            embed = embeds.success(f"Now playing **{track['title'][:200]}**.", "Playing")
+            embed = embeds.success(
+                f"Starting **{_trunc200(track['title'])}**…", "Now Playing 🎵"
+            )
 
         self.view.chosen = track
         for child in self.view.children:

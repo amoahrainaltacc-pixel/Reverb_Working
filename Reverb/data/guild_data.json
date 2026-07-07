@@ -4,6 +4,13 @@
     "dj_role": null,
     "recently_played": [
       {
+        "title": "Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)",
+        "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "duration": 214.0,
+        "uploader": "Rick Astley",
+        "thumbnail": null
+      },
+      {
         "title": "blackbear - hot girl bummer [Low Budget Video]",
         "url": "https://www.youtube.com/watch?v=yMlKJGKyoCo",
         "duration": 189.0,
@@ -13,6 +20,6 @@
     ],
     "playlists": {},
     "favorites": {},
-    "total_played": 1
+    "total_played": 3
   }
 }

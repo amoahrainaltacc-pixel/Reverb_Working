@@ -2,7 +2,9 @@
 # Explicitly defines every phase so Railway ignores the pnpm monorepo at root.
 
 [phases.setup]
-nixPkgs = ["python313", "ffmpeg", "libopus", "libsodium"]
+# deno is required by yt-dlp's JS extractor for best YouTube format support.
+# libopus + libsodium are required for Discord voice audio.
+nixPkgs = ["python313", "ffmpeg", "libopus", "libsodium", "deno"]
 
 [phases.install]
 cmds = [

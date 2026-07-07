@@ -22,11 +22,11 @@ QUEUE_COLOR:   int = 0x9B59B6   # medium purple         – queue embed
 STATS_COLOR:   int = 0x2ECC71   # emerald green         – stats embed
 DARK_COLOR:    int = 0x23272A   # near-black            – utility embeds
 
-# ── Custom server emojis ───────────────────────────────────────────────────
-EMOJI_ERROR:   str = "<:XE:1524120772396712157>"
-EMOJI_SUCCESS: str = "<:THESWE:1524120674157858826>"
-EMOJI_MUSIC:   str = "<:bear_music:1524121341349990541>"
-EMOJI_INFO:    str = "<:info:1523416103206916297>"
+# ── Emojis (unicode — works on every server, no custom emoji dependency) ──
+EMOJI_ERROR:   str = "❌"
+EMOJI_SUCCESS: str = "✅"
+EMOJI_MUSIC:   str = "🎵"
+EMOJI_INFO:    str = "ℹ️"
 
 # ── Behaviour ──────────────────────────────────────────────────────────────
 AUTO_DISCONNECT_DELAY: int = int(os.getenv("AUTO_DISCONNECT_DELAY", "300"))

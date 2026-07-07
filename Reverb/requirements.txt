@@ -1,11 +1,14 @@
 # Reverb Discord Music Bot – Python dependencies
-# Install with: pip install -r requirements.txt
+# Pin discord.py to 2.7.1+ which includes davey (Discord DAVE E2EE support).
 
 # ── Discord ────────────────────────────────────────────────────────────────
 discord.py[voice]==2.7.1
 
+# ── Voice encryption (required for all voice features) ────────────────────
+PyNaCl>=1.5.0
+
 # ── Audio extraction ───────────────────────────────────────────────────────
-yt-dlp>=2024.1.1
+yt-dlp>=2026.1.1
 
 # ── Web / async ────────────────────────────────────────────────────────────
 aiohttp>=3.9.0
@@ -13,5 +16,5 @@ aiohttp>=3.9.0
 # ── Config ─────────────────────────────────────────────────────────────────
 python-dotenv>=1.0.0
 
-# ── Python 3.13 compatibility ─────────────────────────────────────────────
+# ── Python 3.13 compatibility (audioop removed from stdlib) ───────────────
 audioop-lts>=0.2.1

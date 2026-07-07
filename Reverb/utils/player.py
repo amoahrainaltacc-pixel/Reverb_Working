@@ -387,8 +387,10 @@ class GuildPlayer:
             return
         from utils.embeds import now_playing as np_embed
         from utils.buttons import PlayerView
-        vc      = self.guild.voice_client
-        vc_name = vc.channel.name if vc else ""
+        vc       = self.guild.voice_client
+        vc_name  = vc.channel.name if vc else ""
+        bot      = self.bot_ref or self.bot
+        bot_icon = str(bot.user.display_avatar) if bot.user else None
         embed = np_embed(
             self.current_meta,
             position=0,
@@ -396,6 +398,7 @@ class GuildPlayer:
             looping=self.looping,
             queue_size=self.queue_size(),
             vc_name=vc_name,
+            bot_icon=bot_icon,
         )
         view = PlayerView(self)
         try:
