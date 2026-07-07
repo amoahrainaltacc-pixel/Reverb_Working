@@ -26,15 +26,27 @@ from discord.ext import commands
 def _load_opus() -> None:
     if discord.opus.is_loaded():
         return
-    for lib in ("opus", "libopus.so.0", "libopus.so.1", "libopus"):
+
+    # Let the OS locate the Opus shared library.
+    lib = ctypes.util.find_library("opus")
+
+    if lib:
         try:
             discord.opus.load_opus(lib)
-            print(f"[reverb] Loaded opus: {lib}")
+            print(f"[reverb] Loaded Opus: {lib}")
+            return
+        except OSError as exc:
+            print(f"[reverb] Failed to load Opus ({lib}): {exc}")
+
+    # Fallback names
+    for candidate in ("libopus.so.0", "libopus.so.1", "libopus.so"):
+        try:
+            discord.opus.load_opus(candidate)
+            print(f"[reverb] Loaded Opus: {candidate}")
             return
         except OSError:
-            continue
-    # If we get here the lib is missing — voice will fail at play-time with
-    # a clear error rather than silently.
+            pass
+
     print("[reverb] WARNING: libopus not found — voice playback will not work.")
 
 _load_opus()
