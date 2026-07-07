@@ -1,2 +1,8 @@
 [phases.setup]
-nixPkgs = ["python313", "ffmpeg", "libopus", "libsodium", "deno"]
+nixPkgs = [
+  "python313",
+  "ffmpeg",
+  "opus",
+  "libsodium",
+  "deno"
+]
