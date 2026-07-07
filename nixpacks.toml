@@ -1,17 +1,13 @@
-# nixpacks.toml – Railway build config for the Reverb Discord bot
-# Explicitly defines every phase so Railway ignores the pnpm monorepo at root.
+# nixpacks.toml
 
 [phases.setup]
-# deno is required by yt-dlp's JS extractor for best YouTube format support.
-# libopus + libsodium are required for Discord voice audio.
 nixPkgs = ["python313", "ffmpeg", "libopus", "libsodium", "deno"]
 
 [phases.install]
 cmds = [
-  "python3 -m ensurepip --upgrade",
   "python3 -m pip install --upgrade pip",
-  "python3 -m pip install -r Reverb/requirements.txt"
+  "python3 -m pip install -r requirements.txt"
 ]
 
 [start]
-cmd = "cd Reverb && python3 main.py"
+cmd = "python3 main.py"
