@@ -1,1 +1,2 @@
 - [Reverb bot architecture](reverb-arch.md) — key decisions: store, DJ auth, embed limits, player loop, presence.
+- [Reverb libopus loading](reverb-libopus.md) — libopus.so.0 must be loaded explicitly; ctypes name 'opus' fails on Replit.

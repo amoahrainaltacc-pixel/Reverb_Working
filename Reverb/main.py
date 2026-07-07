@@ -19,6 +19,26 @@ from typing import Optional
 import discord
 from discord.ext import commands
 
+# ─── Opus (required for voice audio encoding) ──────────────────────────────
+# Must be loaded before any voice client is created.  discord.py does NOT
+# auto-load on all platforms — Replit's NixOS environment requires an
+# explicit call.  Try the most common shared-library names in order.
+def _load_opus() -> None:
+    if discord.opus.is_loaded():
+        return
+    for lib in ("opus", "libopus.so.0", "libopus.so.1", "libopus"):
+        try:
+            discord.opus.load_opus(lib)
+            print(f"[reverb] Loaded opus: {lib}")
+            return
+        except OSError:
+            continue
+    # If we get here the lib is missing — voice will fail at play-time with
+    # a clear error rather than silently.
+    print("[reverb] WARNING: libopus not found — voice playback will not work.")
+
+_load_opus()
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import config
