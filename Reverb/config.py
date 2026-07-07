@@ -52,8 +52,6 @@ YTDL_FORMAT_OPTIONS: dict = {
     "source_address": "0.0.0.0",
     "extract_flat": "in_playlist",
     "socket_timeout": 30,
-    # Use PO token workaround for bot-detected environments
-    "extractor_args": {"youtube": {"player_client": ["web"]}},
 }
 
 # ── FFmpeg ──────────────────────────────────────────────────────────────────

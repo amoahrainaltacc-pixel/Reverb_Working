@@ -87,9 +87,11 @@ class YTDLSource(discord.PCMVolumeTransformer):
         ydl_opts["noplaylist"]   = False
         ydl_opts["extract_flat"] = True
 
-        # For search queries, prefix with ytsearch<n>
-        if not query.startswith("http") and limit > 1:
-            query = f"ytsearch{limit}:{query}"
+        # Always prefix non-URL queries with ytsearch so yt-dlp uses the
+        # YouTube search extractor. Without this, limit=1 queries hit the
+        # generic extractor which returns nothing.
+        if not query.startswith("http"):
+            query = f"ytsearch{max(limit, 1)}:{query}"
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             data = await loop.run_in_executor(
