@@ -52,6 +52,10 @@ YTDL_FORMAT_OPTIONS: dict = {
     "source_address": "0.0.0.0",
     "extract_flat": "in_playlist",
     "socket_timeout": 30,
+    # Use the iOS player client — its CDN URLs are far less likely to return
+    # 403 than the web client, because YouTube doesn't apply the same
+    # bot-detection heuristics to the iOS app UA.
+    "extractor_args": {"youtube": {"player_client": ["ios"]}},
 }
 
 # ── FFmpeg ──────────────────────────────────────────────────────────────────

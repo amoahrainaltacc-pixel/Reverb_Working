@@ -7,6 +7,7 @@ import asyncio
 import copy
 import logging
 import random
+import shlex
 import time
 from typing import Optional
 
@@ -61,17 +62,48 @@ class YTDLSource(discord.PCMVolumeTransformer):
             data = data["entries"][0]
 
         if stream:
-            stream_url = (
-                data.get("url")
-                or next((f["url"] for f in data.get("requested_formats", []) if f.get("url")), None)
-                or data.get("webpage_url", "")
-            )
+            # Track the exact format object we're using so we can pick up
+            # its headers later (format-level headers take priority over the
+            # top-level info dict when formats differ in CDN requirements).
+            chosen_fmt: dict = data
+            if data.get("url"):
+                stream_url = data["url"]
+            else:
+                chosen_fmt = next(
+                    (f for f in data.get("requested_formats", []) if f.get("url")),
+                    data,
+                )
+                stream_url = chosen_fmt.get("url") or data.get("webpage_url", "")
         else:
+            chosen_fmt = data
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 stream_url = ydl.prepare_filename(data)
 
         ffmpeg_opts = copy.deepcopy(config.FFMPEG_OPTIONS)
         ffmpeg_opts["options"] = f"-vn -filter:a volume={volume}"
+
+        # Forward yt-dlp's required HTTP headers to FFmpeg so the CDN
+        # doesn't 403. yt-dlp stores the exact headers it used (User-Agent,
+        # etc.) in data["http_headers"]; without them FFmpeg's bare request
+        # gets rejected by YouTube's edge servers.
+        # Prefer format-level headers; fall back to top-level info dict.
+        http_headers: dict = chosen_fmt.get("http_headers") or data.get("http_headers") or {}
+        if http_headers:
+            # Sanitise each value: strip CR/LF and quote chars to prevent
+            # argument-injection into FFmpeg's option string.
+            def _safe(v: str) -> str:
+                return str(v).replace("\r", "").replace("\n", "").replace("'", "").replace('"', "")
+
+            header_str = "".join(
+                f"{k}: {_safe(v)}\r\n" for k, v in http_headers.items()
+            )
+            # shlex.quote produces a safely-quoted token that discord.py's
+            # shlex.split will parse back as a single -headers argument.
+            ffmpeg_opts["before_options"] = (
+                f"-headers {shlex.quote(header_str)} "
+                + ffmpeg_opts.get("before_options", "")
+            )
+
         return cls(discord.FFmpegPCMAudio(stream_url, **ffmpeg_opts), data=data, volume=volume)
 
     @classmethod
@@ -90,8 +122,10 @@ class YTDLSource(discord.PCMVolumeTransformer):
         # Always prefix non-URL queries with ytsearch so yt-dlp uses the
         # YouTube search extractor. Without this, limit=1 queries hit the
         # generic extractor which returns nothing.
+        # Clamp limit to at least 1 — callers passing 0 or negative get 1 result.
+        effective_limit = max(limit, 1)
         if not query.startswith("http"):
-            query = f"ytsearch{max(limit, 1)}:{query}"
+            query = f"ytsearch{effective_limit}:{query}"
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             data = await loop.run_in_executor(
