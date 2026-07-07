@@ -8,31 +8,38 @@ load_dotenv()
 # ─────────────────────────────────────────────
 
 BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
-PREFIX: str = os.getenv("PREFIX", ".")
-OWNER_ID: int = int(os.getenv("OWNER_ID", "0"))
+PREFIX:    str = os.getenv("PREFIX", ".")
+OWNER_ID:  int = int(os.getenv("OWNER_ID", "0"))
 
-# ── Colours ────────────────────────────────────────────────────────────────
-BRAND_COLOR:   int = 0x1DB954   # Spotify green  – primary accent
-SUCCESS_COLOR: int = 0x1DB954   # same green for queue-add / success
-ERROR_COLOR:   int = 0xED4245   # Discord red
-WARNING_COLOR: int = 0xFEE75C   # Discord yellow
-INFO_COLOR:    int = 0x5865F2   # Discord blurple
-NP_COLOR:      int = 0x1DB954   # Now-playing green
+# ── Brand colours (black / purple / neon-blue aesthetic) ───────────────────
+BRAND_COLOR:   int = 0x6C3BEE   # vibrant purple       – primary
+NP_COLOR:      int = 0x00D4FF   # neon cyan/blue        – now-playing card
+SUCCESS_COLOR: int = 0x1DB954   # Spotify green         – queue-add / ok
+ERROR_COLOR:   int = 0xED4245   # Discord red           – errors
+WARNING_COLOR: int = 0xFEE75C   # Discord yellow        – warnings
+INFO_COLOR:    int = 0x5865F2   # Discord blurple       – info / help
+QUEUE_COLOR:   int = 0x9B59B6   # medium purple         – queue embed
+STATS_COLOR:   int = 0x2ECC71   # emerald green         – stats embed
+DARK_COLOR:    int = 0x23272A   # near-black            – utility embeds
 
 # ── Custom server emojis ───────────────────────────────────────────────────
-EMOJI_ERROR:      str = "<:XE:1524120772396712157>"           # ❌ fail / X
-EMOJI_SUCCESS:    str = "<:THESWE:1524120674157858826>"       # ✅ enqueued / added
-EMOJI_MUSIC:      str = "<:bear_music:1524121341349990541>"   # 🐻 welcome
-EMOJI_INFO:       str = "<:info:1523416103206916297>"         # ℹ️  info
+EMOJI_ERROR:   str = "<:XE:1524120772396712157>"
+EMOJI_SUCCESS: str = "<:THESWE:1524120674157858826>"
+EMOJI_MUSIC:   str = "<:bear_music:1524121341349990541>"
+EMOJI_INFO:    str = "<:info:1523416103206916297>"
 
 # ── Behaviour ──────────────────────────────────────────────────────────────
 AUTO_DISCONNECT_DELAY: int = int(os.getenv("AUTO_DISCONNECT_DELAY", "300"))
 MAX_QUEUE_SIZE:        int = int(os.getenv("MAX_QUEUE_SIZE", "100"))
 DEFAULT_VOLUME:        int = int(os.getenv("DEFAULT_VOLUME", "50"))
+RECENTLY_PLAYED_LIMIT: int = 10
+SUPPORT_SERVER:        str = os.getenv("SUPPORT_SERVER", "https://discord.gg/reverb")
 
 # ── yt-dlp ─────────────────────────────────────────────────────────────────
 YTDL_FORMAT_OPTIONS: dict = {
-    "format": "bestaudio/best",
+    # Prefer webm/opus (YouTube's native format — no server-side re-encode,
+    # highest available quality). Fall back to any best audio.
+    "format": "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best",
     "outtmpl": "%(extractor)s-%(id)s-%(title)s.%(ext)s",
     "restrictfilenames": True,
     "noplaylist": False,
@@ -48,7 +55,15 @@ YTDL_FORMAT_OPTIONS: dict = {
 }
 
 # ── FFmpeg ──────────────────────────────────────────────────────────────────
+# IMPORTANT: Do NOT add -filter:a volume=X here.
+# Volume is handled by discord.py's PCMVolumeTransformer (pure Python on raw
+# PCM), which avoids a decode→filter→re-encode round-trip that degrades quality.
 FFMPEG_OPTIONS: dict = {
-    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-    "options": "-vn -filter:a volume=0.5",
+    "before_options": (
+        "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+    ),
+    "options": "-vn",   # strip video only; no audio filters
 }
+
+# ── Data directory ──────────────────────────────────────────────────────────
+DATA_DIR: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")

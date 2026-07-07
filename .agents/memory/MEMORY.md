@@ -1,0 +1,1 @@
+- [Reverb bot architecture](reverb-arch.md) — key decisions: store, DJ auth, embed limits, player loop, presence.

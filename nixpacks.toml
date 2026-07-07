@@ -1,0 +1,15 @@
+# nixpacks.toml – Railway build config for the Reverb Discord bot
+# Explicitly defines every phase so Railway ignores the pnpm monorepo at root.
+
+[phases.setup]
+nixPkgs = ["python313", "ffmpeg", "libopus", "libsodium"]
+
+[phases.install]
+cmds = [
+  "python3 -m ensurepip --upgrade",
+  "python3 -m pip install --upgrade pip",
+  "python3 -m pip install -r Reverb/requirements.txt"
+]
+
+[start]
+cmd = "cd Reverb && python3 main.py"

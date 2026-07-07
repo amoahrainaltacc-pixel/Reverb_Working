@@ -1,11 +1,11 @@
 """
 Reverb Music Bot – Entry Point
 ─────────────────────────────
-A production-ready Discord music bot powered by discord.py 2.x, yt-dlp, and FFmpeg.
+Premium Discord music bot: discord.py 2.x · yt-dlp · FFmpeg
 
-Required env vars (set in .env or your host's secrets panel):
+Required env vars (set in .env or Replit Secrets):
   BOT_TOKEN   – Discord bot token
-  PREFIX      – Command prefix (default: .)
+  PREFIX      – Default command prefix (default: .)
   OWNER_ID    – Your Discord user ID
 """
 from __future__ import annotations
@@ -22,6 +22,7 @@ from discord.ext import commands
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import config
+from utils import store as data_store
 from utils.player import PlayerManager
 
 # ─── Logging ───────────────────────────────────────────────────────────────
@@ -45,13 +46,23 @@ intents.voice_states    = True
 intents.guilds          = True
 
 
+# ─── Dynamic prefix (per-guild) ────────────────────────────────────────────
+
+def _get_prefix(bot: "Reverb", message: discord.Message):
+    if message.guild:
+        prefix = data_store.get_prefix(message.guild.id)
+    else:
+        prefix = config.PREFIX
+    return commands.when_mentioned_or(prefix)(bot, message)
+
+
 # ─── Bot class ─────────────────────────────────────────────────────────────
 
 class Reverb(commands.Bot):
 
     def __init__(self):
         super().__init__(
-            command_prefix=commands.when_mentioned_or(config.PREFIX),
+            command_prefix=_get_prefix,
             intents=intents,
             help_command=None,
             case_insensitive=True,
@@ -65,24 +76,27 @@ class Reverb(commands.Bot):
         self.player_manager: Optional[PlayerManager] = None
 
     async def setup_hook(self) -> None:
+        os.makedirs(config.DATA_DIR, exist_ok=True)
         self.player_manager = PlayerManager(self)
 
         from cogs.music    import Music
-        from cogs.commands import General
+        from cogs.utility  import Utility
+        from cogs.settings import Settings
 
         await self.add_cog(Music(self, self.player_manager))
-        general_cog = General(self)
-        await self.add_cog(general_cog)
-        log.info("Cogs loaded successfully.")
+        utility_cog = Utility(self)
+        await self.add_cog(utility_cog)
+        await self.add_cog(Settings(self))
+        log.info("All cogs loaded.")
 
-        # Wire slash-command error handler
-        self.tree.on_error = general_cog.on_app_command_error
+        # Wire slash-command global error handler
+        self.tree.on_error = utility_cog.on_app_command_error
 
         try:
             synced = await self.tree.sync()
             log.info("Synced %d slash command(s).", len(synced))
         except Exception as exc:
-            log.error("Failed to sync slash commands: %s", exc)
+            log.error("Slash sync failed: %s", exc)
 
     async def on_ready(self) -> None:
         banner = r"""
@@ -93,12 +107,12 @@ class Reverb(commands.Bot):
  |_| \_\___| \_/ \___|_|  |_.__/
         """
         print(banner)
-        log.info("━" * 56)
-        log.info("  Reverb Music Bot is online!  🎵")
-        log.info("  User    : %s (ID: %s)", self.user, self.user.id)   # type: ignore
+        log.info("━" * 58)
+        log.info("  🎵  Reverb Music Bot is online!")
+        log.info("  User    : %s  (ID: %s)", self.user, self.user.id)  # type: ignore
         log.info("  Servers : %d", len(self.guilds))
-        log.info("  Prefix  : %s", config.PREFIX)
-        log.info("━" * 56)
+        log.info("  Prefix  : %s  (per-guild overrides via .setprefix)", config.PREFIX)
+        log.info("━" * 58)
         await self.change_presence(
             activity=discord.Activity(
                 type=discord.ActivityType.listening,
@@ -108,7 +122,7 @@ class Reverb(commands.Bot):
         )
 
     async def on_guild_join(self, guild: discord.Guild) -> None:
-        log.info("Joined guild: %s (ID: %s)", guild.name, guild.id)
+        log.info("Joined: %s  (ID: %s)", guild.name, guild.id)
         channel = guild.system_channel or next(
             (c for c in guild.text_channels if c.permissions_for(guild.me).send_messages),
             None,
@@ -116,12 +130,13 @@ class Reverb(commands.Bot):
         if channel:
             from utils.embeds import welcome as welcome_embed
             try:
-                await channel.send(embed=welcome_embed(guild.name, config.PREFIX))
+                prefix = data_store.get_prefix(guild.id)
+                await channel.send(embed=welcome_embed(guild.name, prefix))
             except discord.HTTPException:
                 pass
 
     async def on_guild_remove(self, guild: discord.Guild) -> None:
-        log.info("Left guild: %s (ID: %s)", guild.name, guild.id)
+        log.info("Left: %s  (ID: %s)", guild.name, guild.id)
         if self.player_manager:
             self.player_manager.remove(guild)
 
