@@ -94,11 +94,14 @@ class YTDLSource(discord.PCMVolumeTransformer):
         ffmpeg_opts = copy.deepcopy(config.FFMPEG_OPTIONS)
         # Playing a local file — no reconnect flags needed, strip them to
         # avoid FFmpeg warnings on non-HTTP sources.
+        # Strip all network/HTTP-only FFmpeg flags — they're meaningless (and
+        # fatal) when the source is a local file path.
         ffmpeg_opts["before_options"] = (
             ffmpeg_opts.get("before_options", "")
             .replace("-reconnect 1 ", "")
             .replace("-reconnect_streamed 1 ", "")
             .replace("-reconnect_delay_max 5 ", "")
+            .replace("-timeout 15000000 ", "")
             .strip()
         )
 
